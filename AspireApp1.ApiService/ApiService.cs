@@ -16,6 +16,8 @@ builder.AddAzureCosmosClient("cosmos"); // should set the DisableServerCertifica
 // Add services to the container.
 builder.Services.AddProblemDetails();
 
+builder.AddOpenTelemetry();
+
 var app = builder.Build();
 
 await app.CreateDatabaseAndContainer();
@@ -70,41 +72,41 @@ record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
     public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
 }
 
-    internal static class CosmosExtensions
+internal static class CosmosExtensions
+{
+    private class CosmosDB { }
+    internal static async Task CreateDatabaseAndContainer(this WebApplication app)
     {
-        private class CosmosDB { }
-        internal static async Task CreateDatabaseAndContainer(this WebApplication app)
+        var logger = app.Services.GetRequiredService<ILogger<CosmosDB>>();
+        logger.LogInformation("Creating CosmosDB database and container");
+        var client = app.Services.GetRequiredService<CosmosClient>();
+        while (true)
         {
-            var logger = app.Services.GetRequiredService<ILogger<CosmosDB>>();
-            logger.LogInformation("Creating CosmosDB database and container");
-            var client = app.Services.GetRequiredService<CosmosClient>();
-            while (true)
+            try
             {
-                try
-                {
-                    await client.ReadAccountAsync();
-                    break;
-                }
-                catch (HttpRequestException ex) when (ex.HttpRequestError is HttpRequestError.SecureConnectionError)
-                {
-                    /* The CosmosDB emulator seems to take a very long time to start up, and returns this exception.
-                     * System.Net.Http.HttpRequestException: The SSL connection could not be established, see inner exception.
-                    ---> System.IO.IOException: Received an unexpected EOF or 0 bytes from the transport stream.
-                     */
-                    logger.LogWarning("CosmosDB connection retry");
-                    Telemetry.CosmosDBConnectionRetries.Add(1);
-                    await Task.Delay(1000);
-                }
+                await client.ReadAccountAsync();
+                break;
             }
-            logger.LogInformation("CosmosDB connection success");
-            using var activity = Telemetry.ActivitySource.StartActivity("CreateDatabaseAndContainer Activity");
-            Database database = await client.CreateDatabaseIfNotExistsAsync("Weather");
-            activity?.AddEvent(new ActivityEvent("CosmosDB Database Created"));
-            Container container = await database.CreateContainerIfNotExistsAsync("Cities", "/city", 400);
-            activity?.AddEvent(new ActivityEvent("CosmosDB Container Created"));
-            logger.LogInformation("CosmosDB container created");
+            catch (HttpRequestException ex) when (ex.HttpRequestError is HttpRequestError.SecureConnectionError)
+            {
+                /* The CosmosDB emulator seems to take a very long time to start up, and returns this exception.
+                 * System.Net.Http.HttpRequestException: The SSL connection could not be established, see inner exception.
+                ---> System.IO.IOException: Received an unexpected EOF or 0 bytes from the transport stream.
+                 */
+                logger.LogWarning("CosmosDB connection retry");
+                Telemetry.CosmosDBConnectionRetries.Add(1);
+                await Task.Delay(1000);
+            }
         }
+        logger.LogInformation("CosmosDB connection success");
+        using var activity = Telemetry.ActivitySource.StartActivity("CreateDatabaseAndContainer Activity");
+        Database database = await client.CreateDatabaseIfNotExistsAsync("Weather");
+        activity?.AddEvent(new ActivityEvent("CosmosDB Database Created"));
+        Container container = await database.CreateContainerIfNotExistsAsync("Cities", "/city", 400);
+        activity?.AddEvent(new ActivityEvent("CosmosDB Container Created"));
+        logger.LogInformation("CosmosDB container created");
     }
+}
 
 internal static class Telemetry
 {
@@ -126,5 +128,12 @@ internal static class Telemetry
     public static void Add(this Counter<int> counter, int value, (string key, object? value) tag)
     {
         counter.Add(value, new KeyValuePair<string, object?>(tag.key, tag.value));
+    }
+
+    internal static void AddOpenTelemetry(this WebApplicationBuilder builder)
+    {
+        builder.Services.AddOpenTelemetry()
+            .WithMetrics(metrics => metrics.AddMeter(ActivitySourceName))
+            .WithTracing(tracing => tracing.AddSource(ActivitySourceName));
     }
 }

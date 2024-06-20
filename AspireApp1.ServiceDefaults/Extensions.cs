@@ -48,7 +48,6 @@ public static class Extensions
                 metrics.AddAspNetCoreInstrumentation()
                     .AddHttpClientInstrumentation()
                     .AddRuntimeInstrumentation()
-                .AddMeter(ActivitySourceName);
             })
             .WithTracing(tracing =>
             {
@@ -56,15 +55,12 @@ public static class Extensions
                     // Uncomment the following line to enable gRPC instrumentation (requires the OpenTelemetry.Instrumentation.GrpcNetClient package)
                     //.AddGrpcClientInstrumentation()
                     .AddHttpClientInstrumentation()
-                .AddSource(ActivitySourceName, "1.0.0");
             });
 
         builder.AddOpenTelemetryExporters();
 
         return builder;
     }
-
-    public static readonly string ActivitySourceName = "AspireApp1.ApiService.WeatherForecast";
 
     private static IHostApplicationBuilder AddOpenTelemetryExporters(this IHostApplicationBuilder builder)
     {
